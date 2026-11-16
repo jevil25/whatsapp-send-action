@@ -1,0 +1,48 @@
+name: Send WhatsApp Message (Retention Stack)
+description: Send a WhatsApp message from a workflow, using a number you link by QR code. No WhatsApp Business account needed.
+author: Retention Stack
+branding:
+  icon: message-circle
+  color: green
+
+inputs:
+  api-key:
+    description: Session token (ch_live_...) or account key (ak_live_...) from whatsapp-messaging.retentionstack.agency. Store it as a secret.
+    required: true
+  to:
+    description: Phone number with country code (e.g. 14155550123), or a group ID ending in @g.us.
+    required: true
+  message:
+    description: Message text.
+    required: true
+  session:
+    description: Session name. Leave as default with a session token; set it when using an account key.
+    required: false
+    default: default
+
+outputs:
+  response:
+    description: JSON response from the API.
+    value: ${{ steps.send.outputs.response }}
+
+runs:
+  using: composite
+  steps:
+    - id: send
+      shell: bash
+      env:
+        WA_KEY: ${{ inputs.api-key }}
+        WA_TO: ${{ inputs.to }}
+        WA_TEXT: ${{ inputs.message }}
+        WA_SESSION: ${{ inputs.session }}
+      run: |
+        body=$(jq -n --arg c "$WA_TO" --arg t "$WA_TEXT" --arg s "$WA_SESSION" '{chatId:$c,text:$t,session:$s}')
+        out=$(mktemp)
+        status=$(curl -sS -o "$out" -w '%{http_code}' -X POST https://wp-rapidapi.retentionstack.agency/v1/sendText \
+          -H "Authorization: Bearer $WA_KEY" -H 'Content-Type: application/json' --data "$body")
+        { echo 'response<<__WA_EOF__'; cat "$out"; echo; echo '__WA_EOF__'; } >> "$GITHUB_OUTPUT"
+        if [ "${status:0:1}" != 2 ]; then
+          echo "::error::WhatsApp send failed with HTTP $status: $(cat "$out")"
+          exit 1
+        fi
+        echo "Sent (HTTP $status)"
